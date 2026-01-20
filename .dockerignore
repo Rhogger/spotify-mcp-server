@@ -1,0 +1,8 @@
+node_modules
+build
+.git
+.gitignore
+*.md
+docker-compose.yaml
+Dockerfile
+spotify-config.json
