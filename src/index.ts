@@ -4,14 +4,36 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { albumTools } from "./albums.js";
 import { playTools } from "./play.js";
 import { readTools } from "./read.js";
+import { trackTools } from "./tracks.js";
+import z from "zod";
 
 const server = new McpServer({
   name: "spotify-controller",
   version: "1.0.0",
 });
 
-[...readTools, ...playTools, ...albumTools].forEach((tool) => {
-  server.tool(tool.name, tool.description, tool.schema, tool.handler);
+const allTools = [
+  ...readTools,
+  ...playTools,
+  ...albumTools,
+  ...trackTools
+];
+
+allTools.forEach((tool) => {
+  let schemaShape;
+
+  if (tool.schema instanceof z.ZodObject) {
+    schemaShape = tool.schema.shape;
+  } else {
+    schemaShape = tool.schema;
+  }
+
+  server.tool(
+    tool.name,
+    tool.description,
+    schemaShape,
+    tool.handler
+  );
 });
 
 const app = express();
@@ -36,12 +58,8 @@ app.post("/messages", express.json(), async (req, res) => {
     return;
   }
 
-  // CORREÇÃO AQUI:
-  // O SDK exige 3 argumentos: request, response e o corpo parseado
   await transport.handlePostMessage(req, res, req.body);
 
-  // Nota: O handlePostMessage geralmente já cuida da resposta,
-  // mas caso não feche, garantimos o 200 aqui se a resposta não tiver sido enviada.
   if (!res.headersSent) {
     res.sendStatus(200);
   }

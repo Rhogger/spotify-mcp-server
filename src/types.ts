@@ -1,34 +1,30 @@
-import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type {
   ServerNotification,
   ServerRequest,
-} from '@modelcontextprotocol/sdk/types.js';
-import type { z } from 'zod';
+} from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
 export type SpotifyHandlerExtra = RequestHandlerExtra<
   ServerRequest,
   ServerNotification
 >;
 
+// Mudança importante: Args agora é o SHAPE (objeto literal), não o ZodObject
 export type tool<Args extends z.ZodRawShape> = {
   name: string;
   description: string;
-  schema: Args;
+  schema: Args; // O SDK espera o objeto cru aqui
   handler: (
+    // Aqui nós transformamos o Shape em um Tipo TS inferido
     args: z.infer<z.ZodObject<Args>>,
     extra: SpotifyHandlerExtra,
   ) =>
     | Promise<{
-        content: Array<{
-          type: 'text';
-          text: string;
-        }>;
+        content: Array<{ type: "text"; text: string }>;
       }>
     | {
-        content: Array<{
-          type: 'text';
-          text: string;
-        }>;
+        content: Array<{ type: "text"; text: string }>;
       };
 };
 
