@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { tool } from "./types.js";
-import { handleSpotifyRequest } from "./utils.js";
+import { handleSpotifyRequest, authSchema } from "./utils.js";
 
 // Helper para injetar o token no tipo inferido pelo Zod
 type WithToken<T> = T & { _accessToken?: string };
@@ -8,8 +8,10 @@ type WithToken<T> = T & { _accessToken?: string };
 // --- TOOLS ---
 
 // 1. Play Music
-const playMusicSchema = z
-  .object({
+const playMusic = {
+  name: "playMusic",
+  description: "Start playing a Spotify track, album, artist, or playlist",
+  schema: {
     uri: z
       .string()
       .optional()
@@ -23,16 +25,10 @@ const playMusicSchema = z
       .string()
       .optional()
       .describe("The Spotify device ID to play on"),
-  })
-  .passthrough();
-
-const playMusic = {
-  name: "playMusic",
-  description: "Start playing a Spotify track, album, artist, or playlist",
-  schema: playMusicSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    // Tipagem explícita aqui remove o 'any'
-    const args = rawArgs as WithToken<z.infer<typeof playMusicSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { uri, type, id, deviceId, _accessToken } = args;
 
     if (!(uri || (type && id))) {
@@ -79,21 +75,18 @@ const playMusic = {
 } satisfies tool<any>;
 
 // 2. Pause
-const pausePlaybackSchema = z
-  .object({
+const pausePlayback = {
+  name: "pausePlayback",
+  description: "Pause Spotify playback on the active device",
+  schema: {
     deviceId: z
       .string()
       .optional()
       .describe("The Spotify device ID to pause playback on"),
-  })
-  .passthrough();
-
-const pausePlayback = {
-  name: "pausePlayback",
-  description: "Pause Spotify playback on the active device",
-  schema: pausePlaybackSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof pausePlaybackSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     await handleSpotifyRequest(args._accessToken, async (spotifyApi) => {
       await spotifyApi.player.pausePlayback(args.deviceId || "");
     });
@@ -102,21 +95,18 @@ const pausePlayback = {
 } satisfies tool<any>;
 
 // 3. Skip Next
-const skipToNextSchema = z
-  .object({
+const skipToNext = {
+  name: "skipToNext",
+  description: "Skip to the next track",
+  schema: {
     deviceId: z
       .string()
       .optional()
       .describe("The Spotify device ID to skip on"),
-  })
-  .passthrough();
-
-const skipToNext = {
-  name: "skipToNext",
-  description: "Skip to the next track",
-  schema: skipToNextSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof skipToNextSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     await handleSpotifyRequest(args._accessToken, async (spotifyApi) => {
       await spotifyApi.player.skipToNext(args.deviceId || "");
     });
@@ -125,21 +115,18 @@ const skipToNext = {
 } satisfies tool<any>;
 
 // 4. Skip Previous
-const skipToPreviousSchema = z
-  .object({
+const skipToPrevious = {
+  name: "skipToPrevious",
+  description: "Skip to the previous track",
+  schema: {
     deviceId: z
       .string()
       .optional()
       .describe("The Spotify device ID to skip on"),
-  })
-  .passthrough();
-
-const skipToPrevious = {
-  name: "skipToPrevious",
-  description: "Skip to the previous track",
-  schema: skipToPreviousSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof skipToPreviousSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     await handleSpotifyRequest(args._accessToken, async (spotifyApi) => {
       await spotifyApi.player.skipToPrevious(args.deviceId || "");
     });
@@ -148,8 +135,10 @@ const skipToPrevious = {
 } satisfies tool<any>;
 
 // 5. Create Playlist
-const createPlaylistSchema = z
-  .object({
+const createPlaylist = {
+  name: "createPlaylist",
+  description: "Create a new playlist on Spotify",
+  schema: {
     name: z.string().describe("The name of the playlist"),
     description: z
       .string()
@@ -159,15 +148,10 @@ const createPlaylistSchema = z
       .boolean()
       .optional()
       .describe("Whether the playlist should be public"),
-  })
-  .passthrough();
-
-const createPlaylist = {
-  name: "createPlaylist",
-  description: "Create a new playlist on Spotify",
-  schema: createPlaylistSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof createPlaylistSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { name, description, public: isPublic = false, _accessToken } = args;
 
     const result = await handleSpotifyRequest(
@@ -194,8 +178,10 @@ const createPlaylist = {
 } satisfies tool<any>;
 
 // 6. Add Tracks to Playlist
-const addTracksSchema = z
-  .object({
+const addTracksToPlaylist = {
+  name: "addTracksToPlaylist",
+  description: "Add tracks to a Spotify playlist",
+  schema: {
     playlistId: z.string().describe("The Spotify ID of the playlist"),
     trackIds: z.array(z.string()).describe("Array of Spotify track IDs to add"),
     position: z
@@ -203,16 +189,10 @@ const addTracksSchema = z
       .nonnegative()
       .optional()
       .describe("Position to insert the tracks"),
-  })
-  .passthrough();
-
-const addTracksToPlaylist = {
-  name: "addTracksToPlaylist",
-  description: "Add tracks to a Spotify playlist",
-  schema: addTracksSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    // AQUI OCORRIA O ERRO: Agora trackIds é garantido como string[]
-    const args = rawArgs as WithToken<z.infer<typeof addTracksSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { playlistId, trackIds, position, _accessToken } = args;
 
     if (trackIds.length === 0) {
@@ -222,8 +202,7 @@ const addTracksToPlaylist = {
     }
 
     try {
-      // trackIds é string[], então 'id' aqui é string implicitamente
-      const trackUris = trackIds.map((id) => `spotify:track:${id}`);
+      const trackUris = trackIds.map((id: string) => `spotify:track:${id}`);
 
       await handleSpotifyRequest(_accessToken, async (spotifyApi) => {
         await spotifyApi.playlists.addItemsToPlaylist(
@@ -255,18 +234,15 @@ const addTracksToPlaylist = {
 } satisfies tool<any>;
 
 // 7. Resume
-const resumePlaybackSchema = z
-  .object({
-    deviceId: z.string().optional().describe("Device ID"),
-  })
-  .passthrough();
-
 const resumePlayback = {
   name: "resumePlayback",
   description: "Resume Spotify playback",
-  schema: resumePlaybackSchema,
+  schema: {
+    deviceId: z.string().optional().describe("Device ID"),
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof resumePlaybackSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     await handleSpotifyRequest(args._accessToken, async (spotifyApi) => {
       await spotifyApi.player.startResumePlayback(args.deviceId || "");
     });
@@ -275,21 +251,18 @@ const resumePlayback = {
 } satisfies tool<any>;
 
 // 8. Add to Queue
-const addToQueueSchema = z
-  .object({
+const addToQueue = {
+  name: "addToQueue",
+  description: "Add item to queue",
+  schema: {
     uri: z.string().optional(),
     type: z.enum(["track", "album", "artist", "playlist"]).optional(),
     id: z.string().optional(),
     deviceId: z.string().optional(),
-  })
-  .passthrough();
-
-const addToQueue = {
-  name: "addToQueue",
-  description: "Add item to queue",
-  schema: addToQueueSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof addToQueueSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { uri, type, id, deviceId, _accessToken } = args;
 
     let spotifyUri = uri;
@@ -317,19 +290,16 @@ const addToQueue = {
 } satisfies tool<any>;
 
 // 9. Set Volume
-const setVolumeSchema = z
-  .object({
-    volumePercent: z.number().min(0).max(100),
-    deviceId: z.string().optional(),
-  })
-  .passthrough();
-
 const setVolume = {
   name: "setVolume",
   description: "Set volume (0-100)",
-  schema: setVolumeSchema,
+  schema: {
+    volumePercent: z.number().min(0).max(100),
+    deviceId: z.string().optional(),
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof setVolumeSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     try {
       await handleSpotifyRequest(args._accessToken, async (spotifyApi) => {
         await spotifyApi.player.setPlaybackVolume(
@@ -359,19 +329,16 @@ const setVolume = {
 } satisfies tool<any>;
 
 // 10. Adjust Volume
-const adjustVolumeSchema = z
-  .object({
-    adjustment: z.number().min(-100).max(100),
-    deviceId: z.string().optional(),
-  })
-  .passthrough();
-
 const adjustVolume = {
   name: "adjustVolume",
   description: "Adjust volume relatively",
-  schema: adjustVolumeSchema,
+  schema: {
+    adjustment: z.number().min(-100).max(100),
+    deviceId: z.string().optional(),
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof adjustVolumeSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { adjustment, deviceId, _accessToken } = args;
 
     try {

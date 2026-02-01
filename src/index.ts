@@ -7,11 +7,6 @@ import { readTools } from "./read.js";
 import { trackTools } from "./tracks.js";
 import z from "zod";
 
-const server = new McpServer({
-  name: "spotify-controller",
-  version: "1.0.0",
-});
-
 const allTools = [
   ...readTools,
   ...playTools,
@@ -19,45 +14,106 @@ const allTools = [
   ...trackTools
 ];
 
-allTools.forEach((tool) => {
-  let schemaShape;
+function createMcpServer() {
+  const server = new McpServer({
+    name: "spotify-controller",
+    version: "1.0.0",
+  });
 
-  if (tool.schema instanceof z.ZodObject) {
-    schemaShape = tool.schema.shape;
-  } else {
-    schemaShape = tool.schema;
-  }
+  allTools.forEach((tool) => {
+    let schemaShape;
 
-  server.tool(
-    tool.name,
-    tool.description,
-    schemaShape,
-    tool.handler
-  );
-});
+    if (tool.schema instanceof z.ZodObject) {
+      schemaShape = tool.schema.shape;
+    } else {
+      schemaShape = tool.schema;
+    }
+
+    server.tool(
+      tool.name,
+      tool.description,
+      schemaShape,
+      tool.handler
+    );
+  });
+
+  return server;
+}
 
 const app = express();
 
-let transport: SSEServerTransport | null = null;
+const transports = new Map<string, SSEServerTransport>();
+const servers = new Map<string, McpServer>();
 
 app.get("/sse", async (req, res) => {
-  console.log("🔌 Nova conexão SSE iniciada");
+  const transport = new SSEServerTransport("/messages", res);
+  const server = createMcpServer();
+  const sessionId = transport.sessionId;
 
-  transport = new SSEServerTransport("/messages", res);
-  await server.connect(transport);
+  console.log(`🔌 Nova conexão SSE iniciada. SessionID: ${sessionId}`);
+  transports.set(sessionId, transport);
+  servers.set(sessionId, server);
 
-  req.on("close", () => {
-    console.log("❌ Conexão SSE fechada");
-    transport = null;
-  });
+  try {
+    await server.connect(transport);
+
+    await new Promise<void>((resolve) => {
+      const cleanup = () => {
+        resolve();
+      };
+
+      req.on("close", cleanup);
+      req.on("error", (err) => {
+        const errorCode = (err as any).code;
+        if (errorCode === "ECONNRESET" || err.message.includes("aborted")) {
+          cleanup();
+          return;
+        }
+        console.error(`⚠️ Erro na requisição (SessionID: ${sessionId}):`, err);
+        cleanup();
+      });
+      res.on("error", (err) => {
+        console.error(`⚠️ Erro na resposta (SessionID: ${sessionId}):`, err);
+        cleanup();
+      });
+    });
+  } catch (error) {
+    console.error(`❌ Erro conexao MCP (SessionID: ${sessionId}):`, error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to connect" });
+    }
+  } finally {
+    console.log(`❌ Fechando sessão SSE para SessionID: ${sessionId}`);
+    
+    try {
+      await server.close();
+    } catch (err) {
+      console.error(`Erro ao fechar servidor MCP (SessionID: ${sessionId}):`, err);
+    }
+
+    transports.delete(sessionId);
+    servers.delete(sessionId);
+    
+    if (!res.writableEnded) {
+       res.end();
+    }
+  }
 });
 
 app.post("/messages", express.json(), async (req, res) => {
+  const sessionId = req.query.sessionId as string;
+  const method = req.body?.method || req.body?.params?.method || "unknown";
+  console.log(`📨 Recebido POST /messages (SessionID: ${sessionId}) -> Método: ${method}`);
+  
+  const transport = transports.get(sessionId);
+
   if (!transport) {
-    res.sendStatus(404);
+    console.log(`⚠️ SessionID não encontrado: ${sessionId}`);
+    res.status(404).send("Session not found");
     return;
   }
 
+  // O transporte já está conectado à instância correta do servidor via server.connect()
   await transport.handlePostMessage(req, res, req.body);
 
   if (!res.headersSent) {

@@ -220,46 +220,70 @@ const getMyPlaylists = {
       .max(50)
       .optional()
       .describe("Maximum number of playlists to return (1-50)"),
+    offset: z
+      .number()
+      .min(0)
+      .optional()
+      .describe("Offset for pagination (0-based index)"),
+    json: z.boolean().optional().describe("Return JSON data"),
+    md: z.boolean().optional().describe("Return Markdown format"),
     ...authSchema,
   },
   handler: async (rawArgs, _extra) => {
     const args = rawArgs as WithToken<typeof rawArgs>;
-    const { limit = 50, _accessToken } = args;
+    const {
+      limit = 50,
+      offset = 0,
+      json = false,
+      md = true,
+      _accessToken,
+    } = args;
 
     const playlists = await handleSpotifyRequest(
       _accessToken,
       async (spotifyApi) => {
         return await spotifyApi.currentUser.playlists.playlists(
           limit as MaxInt<50>,
+          offset,
         );
       },
     );
 
-    if (playlists.items.length === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "You don't have any playlists on Spotify",
-          },
-        ],
-      };
+    const content: any[] = [];
+
+    if (md) {
+      if (playlists.items.length === 0) {
+        content.push({
+          type: "text",
+          text: "You don't have any playlists on Spotify",
+        });
+      } else {
+        const formattedPlaylists = playlists.items
+          .map((playlist: SimplifiedPlaylist, i: number) => {
+            const tracksTotal = playlist.tracks?.total
+              ? playlist.tracks.total
+              : 0;
+            return `${offset + i + 1}. "${playlist.name}" (${tracksTotal} tracks) - ID: ${playlist.id}`;
+          })
+          .join("\n");
+        content.push({
+          type: "text",
+          text: `# Your Spotify Playlists (${offset + 1}-${
+            offset + playlists.items.length
+          } of ${playlists.total})\n\n${formattedPlaylists}`,
+        });
+      }
     }
 
-    const formattedPlaylists = playlists.items
-      .map((playlist: SimplifiedPlaylist, i: number) => {
-        const tracksTotal = playlist.tracks?.total ? playlist.tracks.total : 0;
-        return `${i + 1}. "${playlist.name}" (${tracksTotal} tracks) - ID: ${playlist.id}`;
-      })
-      .join("\n");
+    if (json) {
+      content.push({
+        type: "text",
+        text: JSON.stringify(playlists, null, 2),
+      });
+    }
 
     return {
-      content: [
-        {
-          type: "text",
-          text: `# Your Spotify Playlists\n\n${formattedPlaylists}`,
-        },
-      ],
+      content,
     };
   },
 } satisfies tool<any>;
@@ -280,11 +304,20 @@ const getPlaylistTracks = {
       .min(0)
       .optional()
       .describe("Offset for pagination (0-based index)"),
+    json: z.boolean().optional().describe("Return JSON data"),
+    md: z.boolean().optional().describe("Return Markdown format"),
     ...authSchema,
   },
   handler: async (rawArgs, _extra) => {
     const args = rawArgs as WithToken<typeof rawArgs>;
-    const { playlistId, limit = 50, offset = 0, _accessToken } = args;
+    const {
+      playlistId,
+      limit = 50,
+      offset = 0,
+      json = false,
+      md = true,
+      _accessToken,
+    } = args;
 
     const playlistTracks = await handleSpotifyRequest(
       _accessToken,
@@ -299,39 +332,48 @@ const getPlaylistTracks = {
       },
     );
 
-    if ((playlistTracks.items?.length ?? 0) === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "This playlist doesn't have any tracks",
-          },
-        ],
-      };
+    const content: any[] = [];
+
+    if (md) {
+      if ((playlistTracks.items?.length ?? 0) === 0) {
+        content.push({
+          type: "text",
+          text: "This playlist doesn't have any tracks",
+        });
+      } else {
+        const formattedTracks = playlistTracks.items
+          .map((item: PlaylistedTrack, i: number) => {
+            const { track } = item;
+            if (!track) return `${offset + i + 1}. [Removed track]`;
+
+            if (isTrack(track)) {
+              const artists = track.artists.map((a) => a.name).join(", ");
+              const duration = formatDuration(track.duration_ms);
+              return `${offset + i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id}`;
+            }
+
+            return `${offset + i + 1}. Unknown item`;
+          })
+          .join("\n");
+
+        content.push({
+          type: "text",
+          text: `# Tracks in Playlist (${offset + 1}-${
+            offset + playlistTracks.items.length
+          } of ${playlistTracks.total})\n\n${formattedTracks}`,
+        });
+      }
     }
 
-    const formattedTracks = playlistTracks.items
-      .map((item: PlaylistedTrack, i: number) => {
-        const { track } = item;
-        if (!track) return `${offset + i + 1}. [Removed track]`;
-
-        if (isTrack(track)) {
-          const artists = track.artists.map((a) => a.name).join(", ");
-          const duration = formatDuration(track.duration_ms);
-          return `${offset + i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id}`;
-        }
-
-        return `${offset + i + 1}. Unknown item`;
-      })
-      .join("\n");
+    if (json) {
+      content.push({
+        type: "text",
+        text: JSON.stringify(playlistTracks, null, 2),
+      });
+    }
 
     return {
-      content: [
-        {
-          type: "text",
-          text: `# Tracks in Playlist (${offset + 1}-${offset + playlistTracks.items.length} of ${playlistTracks.total})\n\n${formattedTracks}`,
-        },
-      ],
+      content,
     };
   },
 } satisfies tool<any>;
@@ -632,6 +674,126 @@ const getAvailableDevices = {
   },
 } satisfies tool<any>;
 
+const getPlaylist = {
+  name: "getPlaylist",
+  description:
+    "Get detailed information about a specific playlist, optionally calculating total duration",
+  schema: {
+    playlistId: z.string().describe("The Spotify ID of the playlist"),
+    calculateTotalDuration: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether to calculate the total duration by fetching all tracks (may be slow for large playlists)",
+      ),
+    ...authSchema,
+  },
+  handler: async (rawArgs, _extra) => {
+    const args = rawArgs as WithToken<typeof rawArgs>;
+    const { playlistId, calculateTotalDuration = false, _accessToken } = args;
+
+    try {
+      const playlist = await handleSpotifyRequest(
+        _accessToken,
+        async (spotifyApi) => {
+          return await spotifyApi.playlists.getPlaylist(playlistId);
+        },
+      );
+
+      let durationText = "Not calculated";
+      let totalDurationMs = 0;
+
+      if (calculateTotalDuration) {
+        playlist.tracks.items.forEach((item) => {
+          if (item.track && isTrack(item.track)) {
+            totalDurationMs += item.track.duration_ms;
+          }
+        });
+
+        if (playlist.tracks.next) {
+          let offset = playlist.tracks.items.length;
+          const limit = 50;
+          const total = playlist.tracks.total;
+
+          while (offset < total) {
+            const response = await handleSpotifyRequest(
+              _accessToken,
+              async (api) =>
+                api.playlists.getPlaylistItems(
+                  playlistId,
+                  undefined,
+                  undefined,
+                  limit,
+                  offset,
+                ),
+            );
+
+            response.items.forEach((item) => {
+              if (item.track && isTrack(item.track)) {
+                totalDurationMs += item.track.duration_ms;
+              }
+            });
+
+            if (!response.next) break;
+            offset += response.items.length;
+          }
+        }
+
+        const hours = Math.floor(totalDurationMs / 3600000);
+        const minutes = Math.floor((totalDurationMs % 3600000) / 60000);
+        const seconds = Math.floor((totalDurationMs % 60000) / 1000);
+
+        durationText = `${hours > 0 ? `${hours}h ` : ""}${minutes}m ${seconds}s`;
+      }
+
+      const ownerName = playlist.owner?.display_name ?? "Unknown";
+      const totalTracks = playlist.tracks.total;
+      const description = playlist.description || "No description";
+      const followers = playlist.followers?.total || 0;
+
+      const imageUrl = playlist.images?.[0]?.url ?? "No image";
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                id: playlist.id,
+                name: playlist.name,
+                description,
+                owner: ownerName,
+                followers,
+                total_tracks: totalTracks,
+                total_duration_ms: calculateTotalDuration
+                  ? totalDurationMs
+                  : null,
+                formatted_duration: durationText,
+                image: imageUrl,
+                privacy: playlist.public ? "Public" : "Private",
+                snapshot_id: playlist.snapshot_id,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error fetching playlist details: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+      };
+    }
+  },
+} satisfies tool<any>;
+
 export const readTools = [
   searchSpotify,
   getNowPlaying,
@@ -641,4 +803,5 @@ export const readTools = [
   getUsersSavedTracks,
   getQueue,
   getAvailableDevices,
+  getPlaylist,
 ];

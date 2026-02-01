@@ -6,26 +6,23 @@ import type {
 } from "@spotify/web-api-ts-sdk";
 import { z } from "zod";
 import type { tool } from "./types.js";
-import { formatDuration, handleSpotifyRequest } from "./utils.js";
+import { formatDuration, handleSpotifyRequest, authSchema } from "./utils.js";
 
 type WithToken<T> = T & { _accessToken?: string };
 
 // 1. Get Albums
-const getAlbumsSchema = z
-  .object({
-    albumIds: z
-      .union([z.string(), z.array(z.string()).max(20)])
-      .describe("A single album ID or array of album IDs (max 20)"),
-  })
-  .passthrough();
-
 const getAlbums = {
   name: "getAlbums",
   description:
     "Get detailed information about one or more albums by their Spotify IDs",
-  schema: getAlbumsSchema,
+  schema: {
+    albumIds: z
+      .union([z.string(), z.array(z.string()).max(20)])
+      .describe("A single album ID or array of album IDs (max 20)"),
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof getAlbumsSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { albumIds, _accessToken } = args;
     const ids = Array.isArray(albumIds) ? albumIds : [albumIds];
 
@@ -77,20 +74,17 @@ const getAlbums = {
 } satisfies tool<any>;
 
 // 2. Get Album Tracks
-const getAlbumTracksSchema = z
-  .object({
-    albumId: z.string().describe("The Spotify ID of the album"),
-    limit: z.number().min(1).max(50).optional().describe("Limit (1-50)"),
-    offset: z.number().min(0).optional().describe("Offset"),
-  })
-  .passthrough();
-
 const getAlbumTracks = {
   name: "getAlbumTracks",
   description: "Get tracks from a specific album with pagination",
-  schema: getAlbumTracksSchema,
+  schema: {
+    albumId: z.string().describe("The Spotify ID of the album"),
+    limit: z.number().min(1).max(50).optional().describe("Limit (1-50)"),
+    offset: z.number().min(0).optional().describe("Offset"),
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof getAlbumTracksSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { albumId, limit = 20, offset = 0, _accessToken } = args;
 
     try {
@@ -139,22 +133,19 @@ const getAlbumTracks = {
 } satisfies tool<any>;
 
 // 3. Save/Remove Albums
-const saveOrRemoveSchema = z
-  .object({
+const saveOrRemoveAlbumForUser = {
+  name: "saveOrRemoveAlbumForUser",
+  description: "Save or remove albums from user library",
+  schema: {
     albumIds: z
       .array(z.string())
       .max(20)
       .describe("Array of Spotify album IDs (max 20)"),
     action: z.enum(["save", "remove"]).describe("Action: save or remove"),
-  })
-  .passthrough();
-
-const saveOrRemoveAlbumForUser = {
-  name: "saveOrRemoveAlbumForUser",
-  description: "Save or remove albums from user library",
-  schema: saveOrRemoveSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof saveOrRemoveSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { albumIds, action, _accessToken } = args;
 
     if (albumIds.length === 0) {
@@ -192,21 +183,18 @@ const saveOrRemoveAlbumForUser = {
 } satisfies tool<any>;
 
 // 4. Check Saved Albums
-const checkSavedSchema = z
-  .object({
+const checkUsersSavedAlbums = {
+  name: "checkUsersSavedAlbums",
+  description: "Check if albums are saved in library",
+  schema: {
     albumIds: z
       .array(z.string())
       .max(20)
       .describe("Array of Spotify album IDs"),
-  })
-  .passthrough();
-
-const checkUsersSavedAlbums = {
-  name: "checkUsersSavedAlbums",
-  description: "Check if albums are saved in library",
-  schema: checkSavedSchema,
+    ...authSchema,
+  },
   handler: async (rawArgs, _extra) => {
-    const args = rawArgs as WithToken<z.infer<typeof checkSavedSchema>>;
+    const args = rawArgs as WithToken<typeof rawArgs>;
     const { albumIds, _accessToken } = args;
 
     try {
@@ -219,7 +207,7 @@ const checkUsersSavedAlbums = {
 
       const formattedResults = albumIds
         .map(
-          (id, i) =>
+          (id: string, i: number) =>
             `${i + 1}. ${id}: ${savedStatus[i] ? "Saved" : "Not saved"}`,
         )
         .join("\n");
