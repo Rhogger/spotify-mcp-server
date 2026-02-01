@@ -2,10 +2,7 @@ import { z } from "zod";
 import type { tool } from "./types.js";
 import { handleSpotifyRequest, authSchema, formatError } from "./utils.js";
 
-// Helper para injetar o token no tipo inferido pelo Zod
 type WithToken<T> = T & { _accessToken?: string };
-
-// --- TOOLS ---
 
 const playMusic = {
   name: "playMusic",
@@ -15,11 +12,26 @@ const playMusic = {
       .string()
       .optional()
       .describe("The Spotify URI to play (overrides type and id)"),
+    uris: z
+      .array(z.string())
+      .optional()
+      .describe("An array of Spotify track URIs to play"),
+    contextUri: z
+      .string()
+      .optional()
+      .describe("The Spotify context URI to play (album, artist, playlist)"),
     type: z
       .enum(["track", "album", "artist", "playlist"])
       .optional()
-      .describe("The type of item to play"),
+      .describe("The type of item to play (used with id)"),
     id: z.string().optional().describe("The Spotify ID of the item to play"),
+    offset: z
+      .object({
+        position: z.number().optional(),
+        uri: z.string().optional(),
+      })
+      .optional()
+      .describe("Indicates from where in the context playback should start"),
     deviceId: z
       .string()
       .optional()
@@ -28,45 +40,50 @@ const playMusic = {
   },
   handler: async (rawArgs, _extra) => {
     const args = rawArgs as WithToken<typeof rawArgs>;
-    const { uri, type, id, deviceId, _accessToken } = args;
+    const { uri, uris, contextUri, type, id, offset, deviceId, _accessToken } =
+      args;
 
-    if (!(uri || (type && id))) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Error: Must provide either a URI or both a type and ID",
-          },
-        ],
-        isError: true,
-      };
+    if (!(uri || uris || contextUri || (type && id))) {
+      await handleSpotifyRequest(_accessToken, async (spotifyApi) => {
+        await spotifyApi.player.startResumePlayback(deviceId || "");
+      });
+      return { content: [{ type: "text", text: "Resumed playback" }] };
     }
 
-    let spotifyUri = uri;
-    if (!spotifyUri && type && id) {
-      spotifyUri = `spotify:${type}:${id}`;
+    let finalContextUri = contextUri;
+    let finalUris = uris;
+
+    if (!finalContextUri && !finalUris) {
+      if (uri) {
+        if (uri.includes(":track:")) {
+          finalUris = [uri];
+        } else {
+          finalContextUri = uri;
+        }
+      } else if (type && id) {
+        const generatedUri = `spotify:${type}:${id}`;
+        if (type === "track") {
+          finalUris = [generatedUri];
+        } else {
+          finalContextUri = generatedUri;
+        }
+      }
     }
 
     await handleSpotifyRequest(_accessToken, async (spotifyApi) => {
-      const device = deviceId || "";
-      if (!spotifyUri) {
-        await spotifyApi.player.startResumePlayback(device);
-        return;
-      }
-      if (type === "track") {
-        await spotifyApi.player.startResumePlayback(device, undefined, [
-          spotifyUri,
-        ]);
-      } else {
-        await spotifyApi.player.startResumePlayback(device, spotifyUri);
-      }
+      await spotifyApi.player.startResumePlayback(
+        deviceId || "",
+        finalContextUri,
+        finalUris,
+        offset,
+      );
     });
 
     return {
       content: [
         {
           type: "text",
-          text: `Started playing ${type || "music"} ${id ? `(ID: ${id})` : ""}`,
+          text: `Started playback successfully.`,
         },
       ],
     };
@@ -130,7 +147,6 @@ const skipToPrevious = {
   },
 } satisfies tool<any>;
 
-// 7. Resume
 const resumePlayback = {
   name: "resumePlayback",
   description: "Resume Spotify playback",
@@ -147,7 +163,6 @@ const resumePlayback = {
   },
 } satisfies tool<any>;
 
-// 8. Add to Queue
 const addToQueue = {
   name: "addToQueue",
   description: "Add item to queue",
@@ -186,7 +201,6 @@ const addToQueue = {
   },
 } satisfies tool<any>;
 
-// 9. Set Volume
 const setVolume = {
   name: "setVolume",
   description: "Set volume (0-100)",
@@ -225,7 +239,6 @@ const setVolume = {
   },
 } satisfies tool<any>;
 
-// 10. Adjust Volume
 const adjustVolume = {
   name: "adjustVolume",
   description: "Adjust volume relatively",
@@ -239,7 +252,6 @@ const adjustVolume = {
     const { adjustment, deviceId, _accessToken } = args;
 
     try {
-      // Lógica complexa de volume mantida, apenas adaptada para stateless
       const playback = await handleSpotifyRequest(
         _accessToken,
         async (spotifyApi) => {
@@ -287,6 +299,122 @@ const adjustVolume = {
   },
 } satisfies tool<any>;
 
+const transferPlayback = {
+  name: "transferPlayback",
+  description: "Transfer playback to a new device",
+  schema: {
+    deviceId: z.string().describe("The device ID to transfer playback to"),
+    play: z
+      .boolean()
+      .optional()
+      .describe("Whether to start playback on the new device (default: false)"),
+    ...authSchema,
+  },
+  handler: async (rawArgs, _extra) => {
+    const args = rawArgs as WithToken<typeof rawArgs>;
+    const { deviceId, play = false, _accessToken } = args;
+
+    try {
+      await handleSpotifyRequest(_accessToken, async (spotifyApi) => {
+        await spotifyApi.player.transferPlayback([deviceId], play);
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Playback transferred to device: ${deviceId}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: formatError(error),
+          },
+        ],
+      };
+    }
+  },
+} satisfies tool<any>;
+
+const setShuffle = {
+  name: "setShuffle",
+  description: "Toggle shuffle on or off",
+  schema: {
+    state: z.boolean().describe("true to enable shuffle, false to disable"),
+    deviceId: z.string().optional().describe("The device ID to target"),
+    ...authSchema,
+  },
+  handler: async (rawArgs, _extra) => {
+    const args = rawArgs as WithToken<typeof rawArgs>;
+    const { state, deviceId, _accessToken } = args;
+
+    try {
+      await handleSpotifyRequest(_accessToken, async (spotifyApi) => {
+        await spotifyApi.player.togglePlaybackShuffle(state, deviceId || "");
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Shuffle ${state ? "enabled" : "disabled"}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: formatError(error),
+          },
+        ],
+      };
+    }
+  },
+} satisfies tool<any>;
+
+const setRepeatMode = {
+  name: "setRepeatMode",
+  description: "Set the repeat mode for playback",
+  schema: {
+    state: z
+      .enum(["track", "context", "off"])
+      .describe("track, context or off"),
+    deviceId: z.string().optional().describe("The device ID to target"),
+    ...authSchema,
+  },
+  handler: async (rawArgs, _extra) => {
+    const args = rawArgs as WithToken<typeof rawArgs>;
+    const { state, deviceId, _accessToken } = args;
+
+    try {
+      await handleSpotifyRequest(_accessToken, async (spotifyApi) => {
+        await spotifyApi.player.setRepeatMode(state, deviceId || "");
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Repeat mode set to: ${state}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: formatError(error),
+          },
+        ],
+      };
+    }
+  },
+} satisfies tool<any>;
+
 export const playTools = [
   playMusic,
   pausePlayback,
@@ -296,4 +424,7 @@ export const playTools = [
   addToQueue,
   setVolume,
   adjustVolume,
+  transferPlayback,
+  setShuffle,
+  setRepeatMode,
 ];

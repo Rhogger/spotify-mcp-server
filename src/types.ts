@@ -10,13 +10,11 @@ export type SpotifyHandlerExtra = RequestHandlerExtra<
   ServerNotification
 >;
 
-// Mudança importante: Args agora é o SHAPE (objeto literal), não o ZodObject
 export type tool<Args extends z.ZodRawShape> = {
   name: string;
   description: string;
-  schema: Args; // O SDK espera o objeto cru aqui
+  schema: Args;
   handler: (
-    // Aqui nós transformamos o Shape em um Tipo TS inferido
     args: z.infer<z.ZodObject<Args>>,
     extra: SpotifyHandlerExtra,
   ) =>

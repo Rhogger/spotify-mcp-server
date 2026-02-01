@@ -115,7 +115,6 @@ app.post("/messages", express.json(), async (req, res) => {
     return;
   }
 
-  // O transporte já está conectado à instância correta do servidor via server.connect()
   await transport.handlePostMessage(req, res, req.body);
 
   if (!res.headersSent) {

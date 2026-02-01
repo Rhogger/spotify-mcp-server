@@ -10,7 +10,6 @@ import { formatDuration, handleSpotifyRequest, authSchema } from "./utils.js";
 
 type WithToken<T> = T & { _accessToken?: string };
 
-// 1. Get Albums
 const getAlbums = {
   name: "getAlbums",
   description:
@@ -36,8 +35,6 @@ const getAlbums = {
       const albums = await handleSpotifyRequest(
         _accessToken,
         async (spotifyApi) => {
-          // A SDK do Spotify trata array e single string de forma inteligente,
-          // mas é mais seguro forçar a chamada de lista para garantir retorno de array
           return await spotifyApi.albums.get(ids);
         },
       );
@@ -46,7 +43,6 @@ const getAlbums = {
         return { content: [{ type: "text", text: "No albums found" }] };
       }
 
-      // Tipagem explícita no map para evitar 'implicit any'
       const formattedAlbums = albums
         .map((album: Album, i: number) => {
           if (!album) return `${i + 1}. [Album not found]`;
@@ -73,7 +69,6 @@ const getAlbums = {
   },
 } satisfies tool<any>;
 
-// 2. Get Album Tracks
 const getAlbumTracks = {
   name: "getAlbumTracks",
   description: "Get tracks from a specific album with pagination",
@@ -132,7 +127,6 @@ const getAlbumTracks = {
   },
 } satisfies tool<any>;
 
-// 3. Save/Remove Albums
 const saveOrRemoveAlbumForUser = {
   name: "saveOrRemoveAlbumForUser",
   description: "Save or remove albums from user library",
@@ -182,7 +176,6 @@ const saveOrRemoveAlbumForUser = {
   },
 } satisfies tool<any>;
 
-// 4. Check Saved Albums
 const checkUsersSavedAlbums = {
   name: "checkUsersSavedAlbums",
   description: "Check if albums are saved in library",

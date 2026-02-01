@@ -13,7 +13,6 @@ import type { SpotifyTrack, tool } from "./types.js";
 import { formatDuration, handleSpotifyRequest } from "./utils.js";
 import { authSchema } from "./utils.js";
 
-// Interface auxiliar para garantir que o TS saiba do token injetado
 type WithToken<T> = T & { _accessToken?: string };
 
 function isTrack(item: any): item is SpotifyTrack {
@@ -26,7 +25,6 @@ function isTrack(item: any): item is SpotifyTrack {
   );
 }
 
-// --- TOOLS ---
 
 const searchSpotify = {
   name: "searchSpotify",

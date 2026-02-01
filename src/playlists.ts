@@ -1,7 +1,7 @@
 import type { MaxInt, SimplifiedPlaylist } from "@spotify/web-api-ts-sdk";
 import { z } from "zod";
 import type { SpotifyTrack, tool } from "./types.js";
-import { formatDuration, handleSpotifyRequest, authSchema, formatError } from "./utils.js";
+import { handleSpotifyRequest, authSchema, formatError } from "./utils.js";
 
 type WithToken<T> = T & { _accessToken?: string };
 
@@ -14,8 +14,6 @@ function isTrack(item: any): item is SpotifyTrack {
     typeof item.album.name === "string"
   );
 }
-
-// --- READ TOOLS ---
 
 const getMyPlaylists = {
   name: "getMyPlaylists",
@@ -214,8 +212,6 @@ const getPlaylist = {
     }
   },
 } satisfies tool<any>;
-
-// --- WRITE TOOLS ---
 
 const unfollowPlaylist = {
   name: "unfollowPlaylist",
@@ -577,13 +573,11 @@ const addTracksToPlaylist = {
       const resultMsg = await handleSpotifyRequest(
         _accessToken,
         async (spotifyApi) => {
-          // 1. Fetch existing tracks (limit 1000)
           const existingTrackIds = new Set<string>();
           let offset = 0;
           const limit = 50;
           let hasNext = true;
 
-          // Fetch only IDs to be faster
           while (hasNext && offset < 1000) {
             const response = await spotifyApi.playlists.getPlaylistItems(
               playlistId,
@@ -601,14 +595,12 @@ const addTracksToPlaylist = {
             offset += limit;
           }
 
-          // 2. Filter new tracks
           const newTrackIds = trackIds.filter((id: string) => !existingTrackIds.has(id));
 
           if (newTrackIds.length === 0) {
             return "All provided tracks are already in the playlist.";
           }
 
-          // 3. Add new tracks
           const trackUris = newTrackIds.map((id: string) => `spotify:track:${id}`);
           await spotifyApi.playlists.addItemsToPlaylist(
             playlistId,
@@ -687,6 +679,105 @@ const replacePlaylistTracks = {
   },
 } satisfies tool<any>;
 
+const findPlaylistsContainingTrack = {
+  name: "findPlaylistsContainingTrack",
+  description:
+    "Check all user playlists to find which ones contain a specific track ID",
+  schema: {
+    trackId: z.string().describe("The Spotify ID of the track to search for"),
+    ...authSchema,
+  },
+  handler: async (rawArgs, _extra) => {
+    const args = rawArgs as WithToken<typeof rawArgs>;
+    const { trackId, _accessToken } = args;
+
+    try {
+      const results: { id: string; name: string }[] = [];
+
+      await handleSpotifyRequest(_accessToken, async (spotifyApi) => {
+        let offset = 0;
+        let hasMorePlaylists = true;
+
+        while (hasMorePlaylists) {
+          const playlists = await spotifyApi.currentUser.playlists.playlists(
+            50,
+            offset,
+          );
+
+          for (const playlist of playlists.items) {
+            let itemOffset = 0;
+            let hasMoreItems = true;
+
+            while (hasMoreItems) {
+              const items = await spotifyApi.playlists.getPlaylistItems(
+                playlist.id,
+                undefined,
+                "items(track(id)),next",
+                50,
+                itemOffset,
+              );
+
+              const found = items.items.some(
+                (item: any) => item.track && item.track.id === trackId,
+              );
+
+              if (found) {
+                results.push({ id: playlist.id, name: playlist.name });
+                break;
+              }
+
+              if (items.next) {
+                itemOffset += items.items.length;
+              } else {
+                hasMoreItems = false;
+              }
+            }
+          }
+
+          if (playlists.next) {
+            offset += playlists.items.length;
+          } else {
+            hasMorePlaylists = false;
+          }
+        }
+      });
+
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `The track (ID: ${trackId}) was not found in any of your playlists.`,
+            },
+          ],
+        };
+      }
+
+      const formattedResults = results
+        .map((p, i) => `${i + 1}. "${p.name}" - ID: ${p.id}`)
+        .join("\n");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `# Playlists containing the track\n\n${formattedResults}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: formatError(error),
+          },
+        ],
+      };
+    }
+  },
+} satisfies tool<any>;
+
 export const playlistTools = [
   getMyPlaylists,
   getPlaylist,
@@ -698,4 +789,5 @@ export const playlistTools = [
   updatePlaylistDetails,
   reorderPlaylistTracks,
   replacePlaylistTracks,
+  findPlaylistsContainingTrack,
 ];
