@@ -63,3 +63,23 @@ export const authSchema = {
     .optional()
     .describe("Internal: Injected Access Token"),
 };
+
+export function formatError(error: unknown): string {
+  let message = error instanceof Error ? error.message : String(error);
+
+  try {
+    const jsonMatch = message.match(/\{.*\}/);
+    if (jsonMatch) {
+      const errorObj = JSON.parse(jsonMatch[0]);
+      if (errorObj?.error?.message) {
+        return `Error: ${errorObj.error.message} (Status: ${errorObj.error.status})`;
+      }
+    }
+  } catch (e) {
+  }
+
+  if (!message.startsWith("Error")) {
+    return `Error: ${message}`;
+  }
+  return message;
+}

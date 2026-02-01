@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { albumTools } from "./albums.js";
 import { playTools } from "./play.js";
+import { playlistTools } from "./playlists.js";
 import { readTools } from "./read.js";
 import { trackTools } from "./tracks.js";
 import z from "zod";
@@ -10,6 +11,7 @@ import z from "zod";
 const allTools = [
   ...readTools,
   ...playTools,
+  ...playlistTools,
   ...albumTools,
   ...trackTools
 ];
